@@ -18,7 +18,7 @@ from PIL import Image
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class WanI2V(WanImageToVideoPipeline):
+class WanI2V():
     """
     Wan Image to Video Pipeline
     Supports 14B and 720P models (Wan-AI/Wan2.1-I2V-14B-480P-Diffusers, Wan-AI/Wan2.1-I2V-14B-720P-Diffusers)
