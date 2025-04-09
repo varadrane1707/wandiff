@@ -16,6 +16,23 @@ import logging
 from PIL import Image
 import argparse
 from datetime import datetime
+import GPUtil
+
+def max_memory_usage():
+    return GPUtil.getGPUs()[0].memoryTotal
+
+def get_gpu_memory_usage():
+    """Get current GPU memory usage in MB"""
+    gpu = GPUtil.getGPUs()[0]
+    return gpu.memoryUsed
+
+def log_gpu_memory_usage(logger, message=""):
+    """Log current GPU memory usage"""
+    memory_used = get_gpu_memory_usage()
+    memory_total = max_memory_usage()
+    memory_percent = (memory_used / memory_total) * 100
+    logger.info(f"GPU Memory Usage {message}: {memory_used:.2f}MB / {memory_total:.2f}MB ({memory_percent:.2f}%)")
+    return memory_used
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,6 +52,8 @@ class WanI2V():
         self.model_id = model_id
         self.apply_cache = apply_cache
         self.cache_threshold = cache_threshold
+        self.max_memory_used = 0  # Track maximum memory usage
+        
         if self.model_id == "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers":
             self.flow_shift = 3.0
         elif self.model_id == "Wan-AI/Wan2.1-I2V-14B-720P-Diffusers":
@@ -50,10 +69,18 @@ class WanI2V():
             raise e
                 
     def load_model(self):
+        log_gpu_memory_usage(logger, "before loading models")
         self.text_encoder = UMT5EncoderModel.from_pretrained(self.model_id, subfolder="text_encoder", torch_dtype=torch.bfloat16)
+        log_gpu_memory_usage(logger, "after loading text_encoder")
+        
         self.vae = AutoencoderKLWan.from_pretrained(self.model_id, subfolder="vae", torch_dtype=torch.float32)
+        log_gpu_memory_usage(logger, "after loading vae")
+        
         self.transformer = WanTransformer3DModel.from_pretrained(self.model_id, subfolder="transformer", torch_dtype=torch.bfloat16)
+        log_gpu_memory_usage(logger, "after loading transformer")
+        
         self.image_encoder = CLIPVisionModel.from_pretrained(self.model_id, subfolder="image_encoder", torch_dtype=torch.float32)
+        log_gpu_memory_usage(logger, "after loading image_encoder")
         
         self.pipe = WanImageToVideoPipeline.from_pretrained(
             self.model_id,
@@ -65,8 +92,10 @@ class WanI2V():
         )
         self.pipe.scheduler = UniPCMultistepScheduler.from_config(self.pipe.scheduler.config, flow_shift=self.flow_shift)
         self.pipe.to("cuda")
+        log_gpu_memory_usage(logger, "after creating pipeline")
         
     def optimize_pipe(self):
+        log_gpu_memory_usage(logger, "before optimization")
         self.pipe.transformer.enable_gradient_checkpointing()  # Enable gradient checkpointing
         self.pipe.enable_attention_slicing(slice_size="auto")  
         parallelize_pipe( 
@@ -78,12 +107,16 @@ class WanI2V():
         if self.apply_cache:
             from para_attn.first_block_cache.diffusers_adapters import apply_cache_on_pipe
             apply_cache_on_pipe(self.pipe , residual_diff_threshold=self.cache_threshold)
+        log_gpu_memory_usage(logger, "after optimization")
             
     def clear_memory(self):
+        log_gpu_memory_usage(logger, "before clearing memory")
         torch.cuda.empty_cache()
         gc.collect()
+        log_gpu_memory_usage(logger, "after clearing memory")
         
     def generate_video(self,prompt : str,negative_prompt : str,image : Image.Image,num_frames : int = 81,guidance_scale : float = 5.0,num_inference_steps : int = 30,height : int = 576,width : int = 1024,fps : int = 16):
+        log_gpu_memory_usage(logger, "before video generation")
         with torch.inference_mode():
             output = self.pipe(
                 image=image,
@@ -102,6 +135,7 @@ class WanI2V():
             if isinstance(output[0], torch.Tensor):
                 output = [frame.cpu() if frame.device.type == 'cuda' else frame for frame in output]
             export_to_video(output, "wan-i2v.mp4", fps=fps)
+        log_gpu_memory_usage(logger, "after video generation")
     
     def warmup(self):
         logger.info("Running Warm Up!")
@@ -109,6 +143,7 @@ class WanI2V():
         negative_prompt = "blurry, low quality, dark"
         image = load_image("https://storage.googleapis.com/falserverless/gallery/car_720p.png")
         start_time = time.time()
+        log_gpu_memory_usage(logger, "before warmup")
         with torch.inference_mode():
             self.pipe(
                 prompt=prompt,
@@ -123,9 +158,12 @@ class WanI2V():
         self.get_matrix(start_time,time.time(),576,1024)
         logger.info("Warm Up Completed!")
         self.clear_memory()
+        log_gpu_memory_usage(logger, "after warmup")
         
     def shutdown(self):
+        log_gpu_memory_usage(logger, "before shutdown")
         dist.destroy_process_group()
+        log_gpu_memory_usage(logger, "after shutdown")
         
     def get_matrix(self,start_time : int,end_time : int,height : int,width : int):
         with open("matrix.txt", "a") as f:
@@ -134,6 +172,7 @@ class WanI2V():
             f.write(f"inference time : {end_time - start_time}\n")
             f.write(f"height : {height}\n")
             f.write(f"width : {width}\n")
+            f.write(f"max GPU memory used: {self.max_memory_used:.2f}MB\n")
             f.write("-"*40)
             f.write("\n")
         
@@ -177,14 +216,22 @@ if __name__ == "__main__":
     width = args.width
     apply_cache = args.apply_cache
     cache_threshold = args.cache_threshold
+    
+    # Log initial GPU memory usage
+    log_gpu_memory_usage(logger, "at script start")
+    
     WanModel = WanI2V("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers",apply_cache=apply_cache,cache_threshold=cache_threshold)
     
     for i in range(0,len(inputs)):
-            prompt = inputs[str(i+1)]["prompt"]
-            negative_prompt = inputs[str(i+1)]["negative_prompt"]
-            image = inputs[str(i+1)]["image"]
-            start_time = time.time()
-            WanModel.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=height,width=width,num_frames=81,guidance_scale=5.0,num_inference_steps=30,fps=16)
-            end_time = time.time()
-            WanModel.get_matrix(start_time,end_time,height,width)
+        prompt = inputs[str(i+1)]["prompt"]
+        negative_prompt = inputs[str(i+1)]["negative_prompt"]
+        image = inputs[str(i+1)]["image"]
+        start_time = time.time()
+        WanModel.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=height,width=width,num_frames=81,guidance_scale=5.0,num_inference_steps=30,fps=16)
+        end_time = time.time()
+        WanModel.get_matrix(start_time,end_time,height,width)
+    
+    # Log final GPU memory usage
+    log_gpu_memory_usage(logger, "at script end")
+    
     WanModel.shutdown()
