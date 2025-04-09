@@ -226,6 +226,7 @@ if __name__ == "__main__":
         prompt = inputs[str(i+1)]["prompt"]
         negative_prompt = inputs[str(i+1)]["negative_prompt"]
         image = inputs[str(i+1)]["image"]
+        image = image.resize((width,height))
         start_time = time.time()
         WanModel.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=height,width=width,num_frames=81,guidance_scale=5.0,num_inference_steps=30,fps=16)
         end_time = time.time()
