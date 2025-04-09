@@ -1,0 +1,113 @@
+Video Configs 
+
+Height 720
+Width 1280 
+FPS 16 
+Num of Frames - 81 (4n+1)
+inference steps - 30
+
+
+FB Cache + CP Modules 
+
+8 H100 - 100s threshold 0.1
+4 H100 - 160s threshold 0.1
+8 A100(Runpod) - 280s  , threshold 0.03
+
+# solve the vae decoding OOm issue 
+
+
+
+
+Final Experimentation : 
+
+Devices: NVIDIA 8 x H100 80GB HBM3
+
+Video Features:
+Resolution: 1024x576
+Num of Frames: 81
+FPS : 16 
+Seconds : 5 Seconds
+Model :"Wan-AI/Wan2.1-I2V-14B-720P-Diffusers"
+Number of Inference Steps: 30 
+
+Pipeline Optimizations : 
+
+Context Parallelism and First Block Cache from Para-Attn Repo.
+Text Encoder (T5 offloading) from diffusers.
+
+Test 1 : 
+FB Cache threshold : 0.1 
+Pipeline Loading Time: 67.73 seconds
+Pipeline Inference Time: 114.70 seconds
+Output Video : 
+Note : Output Video is good in quality.
+
+Test 2 :
+FB Cache threshold : 0.2
+Pipeline Loading Time: 73.66 seconds
+Pipeline Inference Time: 96.66 seconds
+Output Video : 
+Note : Output Video Gets Distorted
+
+Test 3:
+FB Cache threshold : 0.15
+Pipeline Loading Time: 67.98 seconds
+Pipeline Inference Time: 102.13 seconds
+Output Video : 
+Note : Output Video Gets Distorted in the last frames
+
+
+Inference Time:
+Example: 0.1 Threshold
+
+Pipe - 65 seconds
+Frames_to_video - 2 seconds
+
+Need to account for 40 seconds
+
+
+For 4 H100 
+Device: NVIDIA H100 80GB HBM3
+Number of GPUs: 4
+Pipeline Loading Time: 69.49 seconds
+Pipeline Inference Time: 129.04 seconds
+
+For 2 H100
+Device: NVIDIA H100 80GB HBM3
+Number of GPUs: 2
+Pipeline Loading Time: 69.41 seconds
+Pipeline Inference Time: 191.26 seconds
+
+
+_______________
+Without Text Encoder Offloading 
+Pipeline Loading Time: 72.91 seconds
+Pipeline Inference Time: 90.74 seconds
+Resolution: 1024x576
+
+Max area allowable without OOM 768 x768
+
+
+Resolutions [threshold,Time,MaxGPUMemory]
+
+768x768 
+0.1 dt --> 60s --> 75.4 GB
+0.05 dt --> 76s --> 75.0 GB
+
+1024x1024
+0.1 dt --> 64s upto Denoising --> OOM
+0.03 dt --> 180s upto Denoising --> OOM
+No dt --> Stuck --> OOM
+
+720x1280
+1024x1024
+0.1 dt --> 64s upto Denoising --> OOM
+0.03 dt --> 180s upto Denoising --> OOM
+No dt --> Stuck --> OOM
+
+1024x576
+0.1 dt --> 60s --> 75.4 GB
+0.05 dt --> 76s --> 75.0 GB
+
+
+
