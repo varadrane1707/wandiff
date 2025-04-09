@@ -225,7 +225,7 @@ if __name__ == "__main__":
     # Log initial GPU memory usage
     log_gpu_memory_usage(logger, "at script start")
     
-    WanModel = WanI2V("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers",apply_cache=apply_cache,cache_threshold=cache_threshold)
+    WanModel = WanI2V("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers",apply_cache=apply_cache,cache_threshold=cache_threshold,quantization_tf=True)
     
     for i in range(0,len(inputs)):
         prompt = inputs[str(i+1)]["prompt"]
