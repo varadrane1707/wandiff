@@ -43,7 +43,7 @@ class WanI2V():
     Supports 14B and 720P models (Wan-AI/Wan2.1-I2V-14B-480P-Diffusers, Wan-AI/Wan2.1-I2V-14B-720P-Diffusers)
     """
     
-    def __init__(self,model_id,apply_cache=True,cache_threshold=0.1):
+    def __init__(self,model_id,apply_cache=True,cache_threshold=0.1,quantization_tf=False):
         logger.info(f"Initializing WanI2V pipeline with model {model_id}")
         dist.init_process_group()
         torch.cuda.set_device(dist.get_rank())
@@ -52,6 +52,7 @@ class WanI2V():
         self.model_id = model_id
         self.apply_cache = apply_cache
         self.cache_threshold = cache_threshold
+        self.quantization_tf = quantization_tf
         self.max_memory_used = 0  # Track maximum memory usage
         
         if self.model_id == "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers":
@@ -76,7 +77,11 @@ class WanI2V():
         self.vae = AutoencoderKLWan.from_pretrained(self.model_id, subfolder="vae", torch_dtype=torch.float32)
         log_gpu_memory_usage(logger, "after loading vae")
         
-        self.transformer = WanTransformer3DModel.from_pretrained(self.model_id, subfolder="transformer", torch_dtype=torch.bfloat16)
+        if self.quantization_tf:
+            ckpt_path="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_i2v_720p_14B_fp8_e4m3fn.safetensors"
+            self.transformer = WanTransformer3DModel.from_single_file(ckpt_path,torch_dtype=torch.float8_e4m3fn)
+        else:
+            self.transformer = WanTransformer3DModel.from_pretrained(self.model_id, subfolder="transformer", torch_dtype=torch.bfloat16)
         log_gpu_memory_usage(logger, "after loading transformer")
         
         self.image_encoder = CLIPVisionModel.from_pretrained(self.model_id, subfolder="image_encoder", torch_dtype=torch.float32)
