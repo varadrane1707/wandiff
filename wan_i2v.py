@@ -81,7 +81,7 @@ class WanI2V():
         self.log_gpu_memory_usage("after loading vae")
         
         if self.quantization_tf:
-            ckpt_path="https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_i2v_720p_14B_fp8_e4m3fn.safetensors"
+            ckpt_path="wan2.1_i2v_720p_14B_fp8_e4m3fn.safetensors"
             self.transformer = WanTransformer3DModel.from_single_file(ckpt_path,torch_dtype=torch.float8_e4m3fn)
         else:
             self.transformer = WanTransformer3DModel.from_pretrained(self.model_id, subfolder="transformer", torch_dtype=torch.bfloat16)
