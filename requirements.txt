@@ -1,0 +1,11 @@
+diffusers @ git+https://github.com/huggingface/diffusers
+torch==2.6.0
+setuptools
+para-attn
+transformers
+accelerate
+ftfy
+imageio
+numpy
+imageio-ffmpeg
+GPUtil 
