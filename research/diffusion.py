@@ -2,7 +2,8 @@ import torch
 import numpy as np
 from diffusers import AutoencoderKLWan, WanImageToVideoPipeline, WanTransformer3DModel
 from diffusers.utils import export_to_video, load_image
-from transformers import CLIPVisionModel
+from transformers import CLIPVisionModel,UMT5EncoderModel
+from diffusers.hooks.group_offloading import apply_group_offloading
 import time
 
 # Available models: Wan-AI/Wan2.1-I2V-14B-480P-Diffusers, Wan-AI/Wan2.1-I2V-14B-720P-Diffusers
@@ -10,23 +11,46 @@ model_id = "Wan-AI/Wan2.1-I2V-14B-720P-Diffusers"
 image_encoder = CLIPVisionModel.from_pretrained(
     model_id, subfolder="image_encoder", torch_dtype=torch.float32
 )
-transformer = WanTransformer3DModel.from_single_file("wan2.1_i2v_720p_14B_fp8_e4m3fn.safetensors", torch_dtype=torch.float8_e4m3fn)
+
+text_encoder = UMT5EncoderModel.from_pretrained(model_id, subfolder="text_encoder", torch_dtype=torch.bfloat16)
 vae = AutoencoderKLWan.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float32)
-pipe = WanImageToVideoPipeline.from_pretrained(
-    model_id, vae=vae, image_encoder=image_encoder, transformer=transformer, torch_dtype=torch.bfloat16
+transformer = WanTransformer3DModel.from_pretrained(model_id, subfolder="transformer", torch_dtype=torch.bfloat16)
+
+onload_device = torch.device("cuda")
+offload_device = torch.device("cpu")
+
+apply_group_offloading(text_encoder,
+    onload_device=onload_device,
+    offload_device=offload_device,
+    offload_type="block_level",
+    num_blocks_per_group=4
 )
 
+transformer.enable_group_offload(
+    onload_device=onload_device,
+    offload_device=offload_device,
+    offload_type="block_level",
+    num_blocks_per_group=4,
+)
+pipe = WanImageToVideoPipeline.from_pretrained(
+    model_id,
+    vae=vae,
+    transformer=transformer,
+    text_encoder=text_encoder,
+    image_encoder=image_encoder,
+    torch_dtype=torch.bfloat16
+)
 # replace this with pipe.to("cuda") if you have sufficient VRAM
 # pipe.enable_model_cpu_offload()
 pipe.to("cuda")
-from para_attn.first_block_cache.diffusers_adapters import apply_cache_on_pipe
-apply_cache_on_pipe(pipe)
+# from para_attn.first_block_cache.diffusers_adapters import apply_cache_on_pipe
+# apply_cache_on_pipe(pipe)
 
 image = load_image(
     "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/astronaut.jpg"
 )
 
-max_area = 1024 * 1024
+max_area = 1280 * 720
 aspect_ratio = image.height / image.width
 mod_value = pipe.vae_scale_factor_spatial * pipe.transformer.config.patch_size[1]
 height = round(np.sqrt(max_area * aspect_ratio)) // mod_value * mod_value

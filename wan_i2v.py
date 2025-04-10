@@ -199,17 +199,24 @@ if __name__ == "__main__":
         "Square" : {
             "height" : 768,
             "width" : 768
+        },
+        "1280*720" : {
+            "height" : 720,
+            "width" : 1280
         }
+        
     }
     parser = argparse.ArgumentParser()
     parser.add_argument("--input_json", type=str,default="inputs.json")
     parser.add_argument("--resolution", type=str,default="Horizontal")
     parser.add_argument("--apply_cache", type=bool,default=True)
     parser.add_argument("--cache_threshold", type=float,default=0.1)
+    parser.add_argument("--quantization_tf", type=bool,default=False)
     args = parser.parse_args()  
     resolution = args.resolution
     apply_cache = args.apply_cache
     cache_threshold = args.cache_threshold
+    quantization_tf = args.quantization_tf
     
     if args.input_json:
         with open(args.input_json, "r") as f:
@@ -223,7 +230,7 @@ if __name__ == "__main__":
             }
         }
     
-    WanModel = WanI2V("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers",apply_cache=apply_cache,cache_threshold=cache_threshold,quantization_tf=False)
+    WanModel = WanI2V("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers",apply_cache=apply_cache,cache_threshold=cache_threshold,quantization_tf=quantization_tf)
     WanModel.log_gpu_memory_usage("at script start")
     
     for i in range(0,len(inputs)):

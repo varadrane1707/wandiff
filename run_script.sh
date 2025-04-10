@@ -1,1 +1,1 @@
-torchrun --nproc_per_node=8 wan_i2v.py --input_json inputs.json --resolution Horizontal --apply_cache True --cache_threshold 0.1
+torchrun --nproc_per_node=2 wan_i2v.py --input_json inputs.json --resolution 1280*720 --apply_cache True --cache_threshold 0.1 --quantization_tf True
