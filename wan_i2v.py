@@ -159,6 +159,8 @@ class WanI2V():
         return output
         
     def decode_video(self,latents,output_type="pil"):
+        #wait for memory to be freed
+        time.sleep(4)
         latents = latents.to(self.vae.dtype)
         latents_mean = (
                 torch.tensor(self.vae.config.latents_mean)
