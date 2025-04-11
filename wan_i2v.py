@@ -75,6 +75,7 @@ class WanI2V():
         return memory_used
                         
     def load_model(self):
+        
         self.log_gpu_memory_usage("before loading models")
         self.text_encoder = UMT5EncoderModel.from_pretrained(self.model_id, subfolder="text_encoder", torch_dtype=torch.bfloat16)
         self.log_gpu_memory_usage("after loading text_encoder")
@@ -215,16 +216,16 @@ if __name__ == "__main__":
     parser.add_argument("--cache_threshold", type=float,default=0.1)
     parser.add_argument("--quantization_tf", type=bool,default=False)
     parser.add_argument("--world_size", type=int,default=4) 
+    parser.add_argument("--num_frames", type=int,default=81)
     args = parser.parse_args()  
     resolution = args.resolution
     apply_cache = args.apply_cache
     cache_threshold = args.cache_threshold
     quantization_tf = args.quantization_tf
     world_size = args.world_size
-    
+    num_frames = args.num_frames
     os.environ["MASTER_ADDR"] = "localhost"  # or the IP of the master node
-    os.environ["MASTER_PORT"] = "29500"      # any free port
-    os.environ["RANK"] = "0"                 # rank of this process
+    os.environ["MASTER_PORT"] = "29500"      # any free port                # rank of this process
     os.environ["WORLD_SIZE"] = str(world_size) 
     if args.input_json:
         with open(args.input_json, "r") as f:
@@ -247,7 +248,7 @@ if __name__ == "__main__":
         image = load_image(inputs[str(i+1)]["image"])
         image = image.resize((RESOLUTION_CONFIG[resolution]["width"],RESOLUTION_CONFIG[resolution]["height"]))
         start_time = time.time()
-        WanModel.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=RESOLUTION_CONFIG[resolution]["height"],width=RESOLUTION_CONFIG[resolution]["width"],num_frames=81,guidance_scale=5.0,num_inference_steps=30,fps=16)
+        WanModel.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=RESOLUTION_CONFIG[resolution]["height"],width=RESOLUTION_CONFIG[resolution]["width"],num_frames=num_frames,guidance_scale=5.0,num_inference_steps=30,fps=16)
         end_time = time.time()
         WanModel.get_matrix(start_time,end_time,RESOLUTION_CONFIG[resolution]["height"],RESOLUTION_CONFIG[resolution]["width"])
     

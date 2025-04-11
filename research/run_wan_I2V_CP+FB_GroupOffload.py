@@ -141,7 +141,7 @@ for i in range(0,2):
     image = inputs[str(i+1)]["image"]
     
     width,height=image.size
-    width , height = 1024 , 576
+    width , height = 1280 , 720
     image = image.resize((width, height))
 
     # Clear cache before inference
