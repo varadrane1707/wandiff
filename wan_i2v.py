@@ -19,10 +19,7 @@ from datetime import datetime
 import GPUtil
 import json
 import os
-os.environ["MASTER_ADDR"] = "localhost"  # or the IP of the master node
-os.environ["MASTER_PORT"] = "29500"      # any free port
-os.environ["RANK"] = "0"                 # rank of this process
-os.environ["WORLD_SIZE"] = "1"           
+         
 
 
 
@@ -217,12 +214,18 @@ if __name__ == "__main__":
     parser.add_argument("--apply_cache", type=bool,default=True)
     parser.add_argument("--cache_threshold", type=float,default=0.1)
     parser.add_argument("--quantization_tf", type=bool,default=False)
+    parser.add_argument("--world_size", type=int,default=4) 
     args = parser.parse_args()  
     resolution = args.resolution
     apply_cache = args.apply_cache
     cache_threshold = args.cache_threshold
     quantization_tf = args.quantization_tf
+    world_size = args.world_size
     
+    os.environ["MASTER_ADDR"] = "localhost"  # or the IP of the master node
+    os.environ["MASTER_PORT"] = "29500"      # any free port
+    os.environ["RANK"] = "0"                 # rank of this process
+    os.environ["WORLD_SIZE"] = str(world_size) 
     if args.input_json:
         with open(args.input_json, "r") as f:
             inputs = json.load(f)
