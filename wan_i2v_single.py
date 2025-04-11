@@ -238,7 +238,7 @@ if __name__ == "__main__":
     parser.add_argument("--apply_cache", type=bool,default=True)
     parser.add_argument("--cache_threshold", type=float,default=0.1)
     parser.add_argument("--quantization_tf", type=bool,default=False)
-    parser.add_argument("--world_size", type=int,default=4) 
+    parser.add_argument("--world_size", type=int,default=1) 
     parser.add_argument("--num_frames", type=int,default=81)
     parser.add_argument("--do_warmup", type=bool,default=False)
     args = parser.parse_args()  
