@@ -81,7 +81,7 @@ class WanI2V():
         self.text_encoder = UMT5EncoderModel.from_pretrained(self.model_id, subfolder="text_encoder", torch_dtype=torch.bfloat16)
         self.log_gpu_memory_usage("after loading text_encoder")
         
-        self.vae = AutoencoderKLWan.from_pretrained(self.model_id, subfolder="vae", torch_dtype=torch.float32)
+        self.vae = AutoencoderKLWan.from_pretrained(self.model_id, subfolder="vae", torch_dtype=torch.bfloat16)
         self.log_gpu_memory_usage("after loading vae")
         
         if self.quantization_tf:
