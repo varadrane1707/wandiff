@@ -18,6 +18,11 @@ import argparse
 from datetime import datetime
 import GPUtil
 import json
+import os
+os.environ["MASTER_ADDR"] = "localhost"  # or the IP of the master node
+os.environ["MASTER_PORT"] = "29500"      # any free port
+os.environ["RANK"] = "0"                 # rank of this process
+os.environ["WORLD_SIZE"] = "1"           
 
 
 
