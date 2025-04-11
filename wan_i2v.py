@@ -138,14 +138,14 @@ class WanI2V():
                 num_frames=num_frames,
                 guidance_scale=guidance_scale,
                 num_inference_steps=num_inference_steps,
-                output_type="pil" if dist.get_rank() == 0 else "pt",
+                output_type="latent",
             ).frames[0]
             
         if dist.get_rank() == 0:
             self.clear_memory()
-            if isinstance(output[0], torch.Tensor):
-                output = [frame.cpu() if frame.device.type == 'cuda' else frame for frame in output]
-            export_to_video(output, "wan-i2v.mp4", fps=fps)
+            # if isinstance(output[0], torch.Tensor):
+            #     output = [frame.cpu() if frame.device.type == 'cuda' else frame for frame in output]
+            # export_to_video(output, "wan-i2v.mp4", fps=fps)
         self.log_gpu_memory_usage("after video generation")
     
     def warmup(self):
