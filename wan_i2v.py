@@ -92,6 +92,8 @@ class WanI2V():
         else:
             self.transformer = WanTransformer3DModel.from_pretrained(self.model_id, subfolder="transformer", torch_dtype=torch.bfloat16)
         self.log_gpu_memory_usage("after loading transformer")
+        self.transformer.enable_layerwise_casting(storage_dtype=torch.float8_e4m3fn, compute_dtype=torch.bfloat16)
+
         
         self.image_encoder = CLIPVisionModel.from_pretrained(self.model_id, subfolder="image_encoder", torch_dtype=torch.float32)
         self.log_gpu_memory_usage("after loading image_encoder")
@@ -159,19 +161,50 @@ class WanI2V():
         return output
         
     def decode_video(self,latents,output_type="pil"):
-        #wait for memory to be freed
-        time.sleep(4)
-        latents = latents.to(self.vae.dtype)
-        latents_mean = (
-                torch.tensor(self.vae.config.latents_mean)
-                .view(1, self.vae.config.z_dim, 1, 1, 1)
-                .to(latents.device, latents.dtype)
-            )
-        latents_std = 1.0 / torch.tensor(self.vae.config.latents_std).view(1, self.vae.config.z_dim, 1, 1, 1).to(
-                latents.device, latents.dtype
-            )
-        latents = latents / latents_std + latents_mean
-        video = self.vae.decode(latents, return_dict=False)[0]
+        size = latents.element_size() * latents.numel() / (1024 ** 3)
+        logger.info(f"Size of latents: {size:.2f}GB")
+        
+        #convert vae to bfloat16
+        # self.vae.to(torch.bfloat16)
+        # latents = latents.to(self.vae.dtype)
+        
+        # #get size of latents in GB
+        # size = latents.element_size() * latents.numel() / (1024 ** 3)
+        # logger.info(f"Size of latents: {size:.2f}GB")
+        # latents_mean = (
+        #         torch.tensor(self.vae.config.latents_mean)
+        #         .view(1, self.vae.config.z_dim, 1, 1, 1)
+        #         .to(latents.device, latents.dtype)
+        #     )
+        # latents_std = 1.0 / torch.tensor(self.vae.config.latents_std).view(1, self.vae.config.z_dim, 1, 1, 1).to(
+        #         latents.device, latents.dtype
+        #     )
+        # latents = latents / latents_std + latents_mean
+        # video = self.vae.decode(latents, return_dict=False)[0]
+        # video = self.video_processor.postprocess_video(video, output_type=output_type)
+        # return video
+        num_frames = latents.shape[2]
+        video_chunks = []
+        batch_size = 8
+        for i in range(0, num_frames, batch_size):
+            # Process a chunk of frames
+            end_idx = min(i + batch_size, num_frames)
+            chunk = latents[:, :, i:end_idx, :, :]
+            
+            # Clear cache before each chunk
+            torch.cuda.empty_cache()
+            
+            # Decode chunk
+            with torch.no_grad():
+                chunk_output = self.vae.decode(chunk, return_dict=False)[0]
+            
+            # Move results to CPU to free GPU memory
+            video_chunks.append(chunk_output.cpu())
+    
+    # Concatenate chunks along time dimension
+        video = torch.cat(video_chunks, dim=2)
+        
+        # Process the final result
         video = self.video_processor.postprocess_video(video, output_type=output_type)
         return video
     
