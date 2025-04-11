@@ -10,6 +10,8 @@ from transformers import CLIPVisionModel, UMT5EncoderModel
 from para_attn.context_parallel import init_context_parallel_mesh
 from para_attn.context_parallel.diffusers_adapters import parallelize_pipe
 
+from diffusers.video_processor import VideoProcessor
+
 import gc
 import time
 import logging
@@ -32,7 +34,7 @@ class WanI2V():
     Supports 14B and 720P models (Wan-AI/Wan2.1-I2V-14B-480P-Diffusers, Wan-AI/Wan2.1-I2V-14B-720P-Diffusers)
     """
     
-    def __init__(self,model_id,apply_cache=True,cache_threshold=0.1,quantization_tf=False):
+    def __init__(self,model_id,apply_cache=True,cache_threshold=0.1,quantization_tf=False,do_warmup=False):
         logger.info(f"Initializing WanI2V pipeline with model {model_id}")
         dist.init_process_group()
         torch.cuda.set_device(dist.get_rank())
@@ -53,7 +55,8 @@ class WanI2V():
             self.load_model()
             self.optimize_pipe()
             logger.info(f"Pipeline initialized {model_id} in {time.time() - start_load_time} seconds")
-            self.warmup()
+            if do_warmup:
+                self.warmup()
         except Exception as e:
             logger.error(f"Error initializing {model_id}: {e}")
             raise e
@@ -92,6 +95,10 @@ class WanI2V():
         
         self.image_encoder = CLIPVisionModel.from_pretrained(self.model_id, subfolder="image_encoder", torch_dtype=torch.float32)
         self.log_gpu_memory_usage("after loading image_encoder")
+        
+        self.vae_scale_factor_temporal = 2 ** sum(self.vae.temperal_downsample) if getattr(self, "vae", None) else 4
+        self.vae_scale_factor_spatial = 2 ** len(self.vae.temperal_downsample) if getattr(self, "vae", None) else 8
+        self.video_processor = VideoProcessor(vae_scale_factor=self.vae_scale_factor_spatial)
         
         self.pipe = WanImageToVideoPipeline.from_pretrained(
             self.model_id,
@@ -146,7 +153,25 @@ class WanI2V():
             # if isinstance(output[0], torch.Tensor):
             #     output = [frame.cpu() if frame.device.type == 'cuda' else frame for frame in output]
             # export_to_video(output, "wan-i2v.mp4", fps=fps)
-        self.log_gpu_memory_usage("after video generation")
+        self.log_gpu_memory_usage("after latent generation")
+        
+        output = self.decode_video(output)
+        return output
+        
+    def decode_video(self,latents,output_type="pil"):
+        latents = latents.to(self.vae.dtype)
+        latents_mean = (
+                torch.tensor(self.vae.config.latents_mean)
+                .view(1, self.vae.config.z_dim, 1, 1, 1)
+                .to(latents.device, latents.dtype)
+            )
+        latents_std = 1.0 / torch.tensor(self.vae.config.latents_std).view(1, self.vae.config.z_dim, 1, 1, 1).to(
+                latents.device, latents.dtype
+            )
+        latents = latents / latents_std + latents_mean
+        video = self.vae.decode(latents, return_dict=False)[0]
+        video = self.video_processor.postprocess_video(video, output_type=output_type)
+        return video
     
     def warmup(self):
         logger.info("Running Warm Up!")
@@ -217,6 +242,7 @@ if __name__ == "__main__":
     parser.add_argument("--quantization_tf", type=bool,default=False)
     parser.add_argument("--world_size", type=int,default=4) 
     parser.add_argument("--num_frames", type=int,default=81)
+    parser.add_argument("--do_warmup", type=bool,default=False)
     args = parser.parse_args()  
     resolution = args.resolution
     apply_cache = args.apply_cache
@@ -224,6 +250,7 @@ if __name__ == "__main__":
     quantization_tf = args.quantization_tf
     world_size = args.world_size
     num_frames = args.num_frames
+    do_warmup = args.do_warmup
     os.environ["MASTER_ADDR"] = "localhost"  # or the IP of the master node
     os.environ["MASTER_PORT"] = "29500"      # any free port                # rank of this process
     os.environ["WORLD_SIZE"] = str(world_size) 
@@ -239,7 +266,7 @@ if __name__ == "__main__":
             }
         }
     
-    WanModel = WanI2V("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers",apply_cache=apply_cache,cache_threshold=cache_threshold,quantization_tf=quantization_tf)
+    WanModel = WanI2V("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers",apply_cache=apply_cache,cache_threshold=cache_threshold,quantization_tf=quantization_tf,do_warmup=do_warmup)
     WanModel.log_gpu_memory_usage("at script start")
     
     for i in range(0,len(inputs)):
