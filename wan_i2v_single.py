@@ -81,7 +81,7 @@ class WanI2V():
         self.text_encoder = UMT5EncoderModel.from_pretrained(self.model_id, subfolder="text_encoder", torch_dtype=torch.bfloat16)
         self.log_gpu_memory_usage("after loading text_encoder")
         
-        self.vae = AutoencoderKLWan.from_pretrained(self.model_id, subfolder="vae", torch_dtype=torch.bfloat16)
+        self.vae = AutoencoderKLWan.from_pretrained(self.model_id, subfolder="vae", torch_dtype=torch.float32)
         self.log_gpu_memory_usage("after loading vae")
         
         if self.quantization_tf:
@@ -90,6 +90,9 @@ class WanI2V():
         else:
             self.transformer = WanTransformer3DModel.from_pretrained(self.model_id, subfolder="transformer", torch_dtype=torch.bfloat16)
         self.log_gpu_memory_usage("after loading transformer")
+        
+        self.transformer.enable_layerwise_casting(storage_dtype=torch.float8_e4m3fn, compute_dtype=torch.bfloat16)
+
         
         self.image_encoder = CLIPVisionModel.from_pretrained(self.model_id, subfolder="image_encoder", torch_dtype=torch.float32)
         self.log_gpu_memory_usage("after loading image_encoder")
