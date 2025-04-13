@@ -165,47 +165,23 @@ class WanI2V():
         size = latents.element_size() * latents.numel() / (1024 ** 3)
         logger.info(f"Size of latents: {size:.2f}GB")
         
-        #convert vae to bfloat16
-        # self.vae.to(torch.bfloat16)
-        # latents = latents.to(self.vae.dtype)
+        # convert vae to bfloat16
+        self.vae.to(torch.bfloat16)
+        latents = latents.to(self.vae.dtype)
         
-        # #get size of latents in GB
-        # size = latents.element_size() * latents.numel() / (1024 ** 3)
-        # logger.info(f"Size of latents: {size:.2f}GB")
-        # latents_mean = (
-        #         torch.tensor(self.vae.config.latents_mean)
-        #         .view(1, self.vae.config.z_dim, 1, 1, 1)
-        #         .to(latents.device, latents.dtype)
-        #     )
-        # latents_std = 1.0 / torch.tensor(self.vae.config.latents_std).view(1, self.vae.config.z_dim, 1, 1, 1).to(
-        #         latents.device, latents.dtype
-        #     )
-        # latents = latents / latents_std + latents_mean
-        # video = self.vae.decode(latents, return_dict=False)[0]
-        # video = self.video_processor.postprocess_video(video, output_type=output_type)
-        # return video
-        num_frames = latents.shape[2]
-        video_chunks = []
-        batch_size = 8
-        for i in range(0, num_frames, batch_size):
-            # Process a chunk of frames
-            end_idx = min(i + batch_size, num_frames)
-            chunk = latents[:, :, i:end_idx, :, :]
-            
-            # Clear cache before each chunk
-            torch.cuda.empty_cache()
-            
-            # Decode chunk
-            with torch.no_grad():
-                chunk_output = self.vae.decode(chunk, return_dict=False)[0]
-            
-            # Move results to CPU to free GPU memory
-            video_chunks.append(chunk_output.cpu())
-    
-    # Concatenate chunks along time dimension
-        video = torch.cat(video_chunks, dim=2)
-        
-        # Process the final result
+        #get size of latents in GB
+        size = latents.element_size() * latents.numel() / (1024 ** 3)
+        logger.info(f"Size of latents: {size:.2f}GB")
+        latents_mean = (
+                torch.tensor(self.vae.config.latents_mean)
+                .view(1, self.vae.config.z_dim, 1, 1, 1)
+                .to(latents.device, latents.dtype)
+            )
+        latents_std = 1.0 / torch.tensor(self.vae.config.latents_std).view(1, self.vae.config.z_dim, 1, 1, 1).to(
+                latents.device, latents.dtype
+            )
+        latents = latents / latents_std + latents_mean
+        video = self.vae.decode(latents, return_dict=False)[0]
         video = self.video_processor.postprocess_video(video, output_type=output_type)
         return video
     
