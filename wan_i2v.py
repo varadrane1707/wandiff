@@ -166,7 +166,7 @@ class WanI2V():
         logger.info(f"Size of latents: {size:.2f}GB")
         
         # convert vae to bfloat16
-        self.vae.to(torch.bfloat16)
+        # self.vae.to(torch.bfloat16)
         latents = latents.to(self.vae.dtype)
         
         #get size of latents in GB
