@@ -581,6 +581,7 @@ class WanVAE_(nn.Module):
                     1, self.z_dim, 1, 1, 1)
             else:
                 z = z / scale[1] + scale[0]
+        z=z.to(torch.bfloat16)
         iter_ = z.shape[2]
         x = self.conv2(z)
         out_list = []
@@ -623,6 +624,7 @@ class WanVAE_(nn.Module):
         tile_overlap_factor = 0.25
 
         # z: [b,c,t,h,w]
+        z=z.to(torch.bfloat16)
 
         if isinstance(scale[0], torch.Tensor):
             z = z / scale[1].view(1, self.z_dim, 1, 1, 1) + scale[0].view(
@@ -749,7 +751,7 @@ def _video_vae(pretrained_path=None, z_dim=None, device='cpu', **kwargs):
     logging.info(f'loading {pretrained_path}')
     # model.load_state_dict(
     #     torch.load(pretrained_path, map_location=device), assign=True)
-    offload.load_model_data(model, pretrained_path.replace(".pth", "_bf16.safetensors"), writable_tensors= False)    
+    offload.load_model_data(model, "Wan2.1_VAE.pth", writable_tensors= False)    
     return model
 
 
@@ -779,7 +781,7 @@ class WanVAE:
         self.model = _video_vae(
             pretrained_path=vae_pth,
             z_dim=z_dim,
-        ).eval() #.requires_grad_(False).to(device)
+        ).eval().requires_grad_(False).to(device).to(torch.bfloat16)
 
     def encode(self, videos, tile_size = 256, any_end_frame = False):
         """
@@ -792,6 +794,11 @@ class WanVAE:
 
 
     def decode(self, zs, tile_size, any_end_frame = False):
+        """
+        zs: A list of latent codes each with shape [C, T, H, W].
+        """
+        zs=zs.to(self.device)
+        zs=zs.to(torch.bfloat16)
         if tile_size > 0:
             return [ self.model.spatial_tiled_decode(u.unsqueeze(0), self.scale, tile_size, any_end_frame=any_end_frame).clamp_(-1, 1).float().squeeze(0) for u in zs ]
         else:
