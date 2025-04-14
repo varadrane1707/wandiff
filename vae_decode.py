@@ -56,11 +56,21 @@ def decode_latents(latents, vae,video_processor,output_type="pil"):
 
 
 if __name__ == "__main__":
-    vae = AutoencoderKLWan.from_pretrained("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers", subfolder="vae", torch_dtype=torch.float32)
-    video_processor = VideoProcessor(vae_scale_factor=8)
-    vae.to("cuda")
+    # vae = AutoencoderKLWan.from_pretrained("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers", subfolder="vae", torch_dtype=torch.float32)
+    # video_processor = VideoProcessor(vae_scale_factor=8)
+    # vae.to("cuda")
     latents = load_latents("latents.pt")
-    decoded_video = decode_latents(latents, vae,video_processor)
-    decoded_video.save("decoded_video.mp4")
+    # decoded_video = decode_latents(latents, vae,video_processor)
+    # decoded_video.save("decoded_video.mp4")
+    import os
+    from tile_vae import WanVAE
+    vae_path = "Wan2.1_VAE.pth"
+    vae = WanVAE(
+            vae_pth=vae_path,
+            device="cuda")
+    VAE_tile_size = 256
+    video = vae.decode(latents, VAE_tile_size, any_end_frame= True)[0]
+    video = video[:,  :-1] 
+    video.save("decoded_video.mp4")
     
     

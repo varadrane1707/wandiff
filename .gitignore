@@ -1,0 +1,8 @@
+__pycache__
+
+*.safetensors
+*.json
+*.mp4
+*.png
+
+Wan2.1_VAE.pth
