@@ -136,7 +136,7 @@ class WanI2V():
         gc.collect()
         self.log_gpu_memory_usage("after clearing memory")
         
-    def generate_video(self,prompt : str,negative_prompt : str,image : Image.Image,num_frames : int = 81,guidance_scale : float = 5.0,num_inference_steps : int = 30,height : int = 576,width : int = 1024,fps : int = 16):
+    def generate_video(self,prompt : str,negative_prompt : str,image : Image.Image,num_frames : int = 81,guidance_scale : float = 5.0,num_inference_steps : int = 30,height : int = 576,width : int = 1024,fps : int = 16,decode_type : str = "save_latents"):
         self.log_gpu_memory_usage("before video generation")
         with torch.inference_mode():
             output = self.pipe(
@@ -158,6 +158,11 @@ class WanI2V():
             # export_to_video(output, "wan-i2v.mp4", fps=fps)
         self.log_gpu_memory_usage("after latent generation")
         
+        if dist.get_rank() == 0:
+            #save the latents
+            torch.save(output, "latents.pt")
+            return None
+        
         output = self.decode_video(output)
         return output
         
@@ -165,8 +170,7 @@ class WanI2V():
         size = latents.element_size() * latents.numel() / (1024 ** 3)
         logger.info(f"Size of latents: {size:.2f}GB")
         
-        # convert vae to bfloat16
-        # self.vae.to(torch.bfloat16)
+        #convert vae to 
         latents = latents.to(self.vae.dtype)
         
         #get size of latents in GB
@@ -255,6 +259,7 @@ if __name__ == "__main__":
     parser.add_argument("--world_size", type=int,default=4) 
     parser.add_argument("--num_frames", type=int,default=81)
     parser.add_argument("--do_warmup", type=bool,default=False)
+    parser.add_argument("--decode_type", type=str,default="save_latents",choices=["save_latents","decode_video"])
     args = parser.parse_args()  
     resolution = args.resolution
     apply_cache = args.apply_cache
@@ -263,6 +268,7 @@ if __name__ == "__main__":
     world_size = args.world_size
     num_frames = args.num_frames
     do_warmup = args.do_warmup
+    decode_type = args.decode_type
     os.environ["MASTER_ADDR"] = "localhost"  # or the IP of the master node
     os.environ["MASTER_PORT"] = "29500"      # any free port                # rank of this process
     os.environ["WORLD_SIZE"] = str(world_size) 
@@ -287,7 +293,7 @@ if __name__ == "__main__":
         image = load_image(inputs[str(i+1)]["image"])
         image = image.resize((RESOLUTION_CONFIG[resolution]["width"],RESOLUTION_CONFIG[resolution]["height"]))
         start_time = time.time()
-        WanModel.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=RESOLUTION_CONFIG[resolution]["height"],width=RESOLUTION_CONFIG[resolution]["width"],num_frames=num_frames,guidance_scale=5.0,num_inference_steps=30,fps=16)
+        WanModel.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=RESOLUTION_CONFIG[resolution]["height"],width=RESOLUTION_CONFIG[resolution]["width"],num_frames=num_frames,guidance_scale=5.0,num_inference_steps=30,fps=16,decode_type=decode_type)
         end_time = time.time()
         WanModel.get_matrix(start_time,end_time,RESOLUTION_CONFIG[resolution]["height"],RESOLUTION_CONFIG[resolution]["width"])
     
