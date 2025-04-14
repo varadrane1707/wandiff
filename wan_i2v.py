@@ -22,7 +22,7 @@ import GPUtil
 import json
 import os
          
-
+from vae_decode import decode_latents
 
 
 logging.basicConfig(level=logging.INFO)
@@ -160,13 +160,12 @@ class WanI2V():
             # export_to_video(output, "wan-i2v.mp4", fps=fps)
         self.log_gpu_memory_usage("after latent generation")
         
-        if dist.get_rank() == 0:
-            #save the latents
+        if decode_type == "save_latents":   
             torch.save(output, "latents.pt")
-            return None
-        
-        output = self.decode_video(output)
-        return output
+            return output
+        else:
+            output = self.decode_video(output)
+            return output
         
     def decode_video(self,latents,output_type="pil"):
         size = latents.element_size() * latents.numel() / (1024 ** 3)
@@ -295,9 +294,15 @@ if __name__ == "__main__":
         image = load_image(inputs[str(i+1)]["image"])
         image = image.resize((RESOLUTION_CONFIG[resolution]["width"],RESOLUTION_CONFIG[resolution]["height"]))
         start_time = time.time()
-        WanModel.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=RESOLUTION_CONFIG[resolution]["height"],width=RESOLUTION_CONFIG[resolution]["width"],num_frames=num_frames,guidance_scale=5.0,num_inference_steps=30,fps=16,decode_type=decode_type)
+        latents = WanModel.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=RESOLUTION_CONFIG[resolution]["height"],width=RESOLUTION_CONFIG[resolution]["width"],num_frames=num_frames,guidance_scale=5.0,num_inference_steps=30,fps=16,decode_type=decode_type)
         end_time = time.time()
         WanModel.get_matrix(start_time,end_time,RESOLUTION_CONFIG[resolution]["height"],RESOLUTION_CONFIG[resolution]["width"])
     
     WanModel.log_gpu_memory_usage("at script end")
     WanModel.shutdown()
+    
+    vae = AutoencoderKLWan.from_pretrained("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers", subfolder="vae", torch_dtype=torch.float16).to("cuda")
+    video_processor = VideoProcessor(vae_scale_factor=8)
+    video = decode_latents(latents, vae,video_processor)
+    video = video_processor.postprocess_video(video, output_type="pil")
+    video.save("video.mp4")
