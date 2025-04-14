@@ -36,8 +36,8 @@ class WanI2V():
     
     def __init__(self,model_id,apply_cache=True,cache_threshold=0.1,quantization_tf=False,do_warmup=False):
         logger.info(f"Initializing WanI2V pipeline with model {model_id}")
-        # os.environ["RANK"] = str(0)
-        dist.init_process_group(backend='nccl', init_method='env://', rank = torch.cuda.device_count(), world_size = torch.cuda.device_count())
+        os.environ["RANK"] = str(0)
+        dist.init_process_group(backend='nccl', init_method='env://')
         torch.cuda.set_device(dist.get_rank())
         start_load_time = time.time()
         self.pipe = None
