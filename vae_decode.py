@@ -27,6 +27,7 @@ def log_gpu_memory_usage(message=""):
 
 def load_latents(latents_path):
     latents = torch.load(latents_path)
+    print(f"Latent shape: {latents.shape}")
     return latents
 
 def decode_latents(latents, vae,video_processor,output_type="pil"):
@@ -35,6 +36,9 @@ def decode_latents(latents, vae,video_processor,output_type="pil"):
     size = latents.element_size() * latents.numel() / (1024 ** 3)
     logger.info(f"Size of latents: {size:.2f}GB")
     latents = latents.to(vae.dtype)
+    latents = latents.to(vae.device)
+    print(latents.device)
+    print(latents.dtype)
     log_gpu_memory_usage("after converting to vae dtype")
     size = latents.element_size() * latents.numel() / (1024 ** 3)
     logger.info(f"Size of latents: {size:.2f}GB")
