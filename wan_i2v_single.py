@@ -1,5 +1,5 @@
 import torch
-import torch.distributed as dist
+
 
 from diffusers import AutoencoderKLWan, WanImageToVideoPipeline,WanTransformer3DModel
 from diffusers.utils import export_to_video, load_image
@@ -7,8 +7,8 @@ from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepSchedu
 
 from transformers import CLIPVisionModel, UMT5EncoderModel
 
-from para_attn.context_parallel import init_context_parallel_mesh
-from para_attn.context_parallel.diffusers_adapters import parallelize_pipe
+# from para_attn.context_parallel import init_context_parallel_mesh
+# from para_attn.context_parallel.diffusers_adapters import parallelize_pipe
 
 from diffusers.video_processor import VideoProcessor
 
@@ -22,7 +22,8 @@ import GPUtil
 import json
 import os
          
-from vae_decode import decode_latents
+from para_attn.parallel_vae.diffusers_adapters import parallelize_vae
+
 
 
 logging.basicConfig(level=logging.INFO)
@@ -36,11 +37,6 @@ class WanI2V():
     
     def __init__(self,model_id,apply_cache=True,cache_threshold=0.1,quantization_tf=False,do_warmup=False):
         logger.info(f"Initializing WanI2V pipeline with model {model_id}")
-        # os.environ["RANK"] = str(0)
-        dist.init_process_group(backend='nccl', init_method='env://')
-        rank = dist.get_rank()
-        logger.info(f"Rank: {rank}")
-        torch.cuda.set_device(rank)
         start_load_time = time.time()
         self.pipe = None
         self.model_id = model_id
@@ -95,6 +91,7 @@ class WanI2V():
         else:
             self.transformer = WanTransformer3DModel.from_pretrained(self.model_id, subfolder="transformer", torch_dtype=torch.bfloat16)
         self.log_gpu_memory_usage("after loading transformer")
+        
         self.transformer.enable_layerwise_casting(storage_dtype=torch.float8_e4m3fn, compute_dtype=torch.bfloat16)
 
         
@@ -119,14 +116,14 @@ class WanI2V():
         
     def optimize_pipe(self):
         self.log_gpu_memory_usage("before optimization")
-        self.pipe.transformer.enable_gradient_checkpointing()  # Enable gradient checkpointing
-        self.pipe.enable_attention_slicing(slice_size="auto")  
-        parallelize_pipe( 
-            self.pipe,
-            mesh=init_context_parallel_mesh(
-                self.pipe.device.type,
-            ),
-        )
+        # self.pipe.transformer.enable_gradient_checkpointing()  # Enable gradient checkpointing
+        # self.pipe.enable_attention_slicing(slice_size="auto")  
+        # parallelize_pipe( 
+        #     self.pipe,
+        #     mesh=init_context_parallel_mesh(
+        #         self.pipe.device.type,
+        #     ),
+        # )
         if self.apply_cache:
             from para_attn.first_block_cache.diffusers_adapters import apply_cache_on_pipe
             apply_cache_on_pipe(self.pipe , residual_diff_threshold=self.cache_threshold)
@@ -138,7 +135,7 @@ class WanI2V():
         gc.collect()
         self.log_gpu_memory_usage("after clearing memory")
         
-    def generate_video(self,prompt : str,negative_prompt : str,image : Image.Image,num_frames : int = 81,guidance_scale : float = 5.0,num_inference_steps : int = 30,height : int = 576,width : int = 1024,fps : int = 16,decode_type : str = "save_latents"):
+    def generate_video(self,prompt : str,negative_prompt : str,image : Image.Image,num_frames : int = 81,guidance_scale : float = 5.0,num_inference_steps : int = 30,height : int = 576,width : int = 1024,fps : int = 16):
         self.log_gpu_memory_usage("before video generation")
         with torch.inference_mode():
             output = self.pipe(
@@ -153,30 +150,29 @@ class WanI2V():
                 output_type="latent",
             ).frames[0]
             
-        if dist.get_rank() == 0:
-            self.clear_memory()
-            # if isinstance(output[0], torch.Tensor):
-            #     output = [frame.cpu() if frame.device.type == 'cuda' else frame for frame in output]
-            # export_to_video(output, "wan-i2v.mp4", fps=fps)
+        self.clear_memory()
+        # if isinstance(output[0], torch.Tensor):
+        #     output = [frame.cpu() if frame.device.type == 'cuda' else frame for frame in output]
+        # export_to_video(output, "wan-i2v.mp4", fps=fps)
         self.log_gpu_memory_usage("after latent generation")
         
-        if decode_type == "save_latents":   
-            torch.save(output, "latents.pt")
-            return output
-        else:
-            output = self.decode_video(output)
-            return output
+        output = self.decode_video(output)
+        return output
         
     def decode_video(self,latents,output_type="pil"):
+        
+        #get size of latents in GB
         size = latents.element_size() * latents.numel() / (1024 ** 3)
         logger.info(f"Size of latents: {size:.2f}GB")
         
-        #convert vae to 
+        #convert vae to bfloat16
+        self.vae.to(torch.bfloat16)
         latents = latents.to(self.vae.dtype)
         
         #get size of latents in GB
         size = latents.element_size() * latents.numel() / (1024 ** 3)
         logger.info(f"Size of latents: {size:.2f}GB")
+        
         latents_mean = (
                 torch.tensor(self.vae.config.latents_mean)
                 .view(1, self.vae.config.z_dim, 1, 1, 1)
@@ -215,7 +211,6 @@ class WanI2V():
         
     def shutdown(self):
         self.log_gpu_memory_usage("before shutdown")
-        dist.destroy_process_group()
         self.log_gpu_memory_usage("after shutdown")
         
     def get_matrix(self,start_time : int,end_time : int,height : int,width : int):
@@ -257,10 +252,9 @@ if __name__ == "__main__":
     parser.add_argument("--apply_cache", type=bool,default=True)
     parser.add_argument("--cache_threshold", type=float,default=0.1)
     parser.add_argument("--quantization_tf", type=bool,default=False)
-    parser.add_argument("--world_size", type=int,default=4) 
+    parser.add_argument("--world_size", type=int,default=1) 
     parser.add_argument("--num_frames", type=int,default=81)
     parser.add_argument("--do_warmup", type=bool,default=False)
-    parser.add_argument("--decode_type", type=str,default="save_latents",choices=["save_latents","decode_video"])
     args = parser.parse_args()  
     resolution = args.resolution
     apply_cache = args.apply_cache
@@ -269,7 +263,6 @@ if __name__ == "__main__":
     world_size = args.world_size
     num_frames = args.num_frames
     do_warmup = args.do_warmup
-    decode_type = args.decode_type
     os.environ["MASTER_ADDR"] = "localhost"  # or the IP of the master node
     os.environ["MASTER_PORT"] = "29500"      # any free port                # rank of this process
     os.environ["WORLD_SIZE"] = str(world_size) 
@@ -294,15 +287,9 @@ if __name__ == "__main__":
         image = load_image(inputs[str(i+1)]["image"])
         image = image.resize((RESOLUTION_CONFIG[resolution]["width"],RESOLUTION_CONFIG[resolution]["height"]))
         start_time = time.time()
-        latents = WanModel.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=RESOLUTION_CONFIG[resolution]["height"],width=RESOLUTION_CONFIG[resolution]["width"],num_frames=num_frames,guidance_scale=5.0,num_inference_steps=30,fps=16,decode_type=decode_type)
+        WanModel.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=RESOLUTION_CONFIG[resolution]["height"],width=RESOLUTION_CONFIG[resolution]["width"],num_frames=num_frames,guidance_scale=5.0,num_inference_steps=30,fps=16)
         end_time = time.time()
         WanModel.get_matrix(start_time,end_time,RESOLUTION_CONFIG[resolution]["height"],RESOLUTION_CONFIG[resolution]["width"])
     
     WanModel.log_gpu_memory_usage("at script end")
     WanModel.shutdown()
-    
-    vae = AutoencoderKLWan.from_pretrained("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers", subfolder="vae", torch_dtype=torch.float16).to("cuda")
-    video_processor = VideoProcessor(vae_scale_factor=8)
-    video = decode_latents(latents, vae,video_processor)
-    video = video_processor.postprocess_video(video, output_type="pil")
-    video.save("video.mp4")

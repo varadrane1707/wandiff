@@ -23,7 +23,7 @@ import json
 import os
          
 from vae_decode import decode_latents
-
+from para_attn.parallel_vae.diffusers_adapters import parallelize_vae
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -89,6 +89,8 @@ class WanI2V():
         self.vae = AutoencoderKLWan.from_pretrained(self.model_id, subfolder="vae", torch_dtype=torch.float32)
         self.log_gpu_memory_usage("after loading vae")
         
+        parallelize_vae(self.vae)
+        
         if self.quantization_tf:
             ckpt_path="wan2.1_i2v_720p_14B_fp8_e4m3fn.safetensors"
             self.transformer = WanTransformer3DModel.from_single_file(ckpt_path,torch_dtype=torch.float8_e4m3fn)
@@ -150,22 +152,24 @@ class WanI2V():
                 num_frames=num_frames,
                 guidance_scale=guidance_scale,
                 num_inference_steps=num_inference_steps,
-                output_type="latent",
+                output_type="pil",
             ).frames[0]
             
         if dist.get_rank() == 0:
             self.clear_memory()
-            # if isinstance(output[0], torch.Tensor):
-            #     output = [frame.cpu() if frame.device.type == 'cuda' else frame for frame in output]
-            # export_to_video(output, "wan-i2v.mp4", fps=fps)
-        self.log_gpu_memory_usage("after latent generation")
+            if isinstance(output[0], torch.Tensor):
+                output = [frame.cpu() if frame.device.type == 'cuda' else frame for frame in output]
+            import uuid 
+            export_to_video(output, f"output_{uuid.uuid4()}.mp4", fps=fps)
+            return output
+        # self.log_gpu_memory_usage("after latent generation")
         
-        if decode_type == "save_latents":   
-            torch.save(output, "latents.pt")
-            return output
-        else:
-            output = self.decode_video(output)
-            return output
+        # if decode_type == "save_latents":   
+        #     torch.save(output, "latents.pt")
+        #     return output
+        # else:
+        #     output = self.decode_video(output)
+        #     return output
         
     def decode_video(self,latents,output_type="pil"):
         size = latents.element_size() * latents.numel() / (1024 ** 3)
@@ -301,8 +305,8 @@ if __name__ == "__main__":
     WanModel.log_gpu_memory_usage("at script end")
     WanModel.shutdown()
     
-    vae = AutoencoderKLWan.from_pretrained("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers", subfolder="vae", torch_dtype=torch.float16).to("cuda")
-    video_processor = VideoProcessor(vae_scale_factor=8)
-    video = decode_latents(latents, vae,video_processor)
-    video = video_processor.postprocess_video(video, output_type="pil")
-    video.save("video.mp4")
+    # vae = AutoencoderKLWan.from_pretrained("Wan-AI/Wan2.1-I2V-14B-720P-Diffusers", subfolder="vae", torch_dtype=torch.float16).to("cuda")
+    # video_processor = VideoProcessor(vae_scale_factor=8)
+    # video = decode_latents(latents, vae,video_processor)
+    # video = video_processor.postprocess_video(video, output_type="pil")
+    # video.save("video.mp4")

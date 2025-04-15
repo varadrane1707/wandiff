@@ -1,0 +1,6 @@
+__pycache__
+
+*.safetensors
+
+
+Wan2.1_VAE.pth
