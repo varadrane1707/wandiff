@@ -5,7 +5,7 @@
         "image" : "https://storage.googleapis.com/falserverless/gallery/car_720p.png"
     },
     "2" : {
-        "prompt" : "A cat in a car",
+        "prompt" : "A cat meowing",
         "negative_prompt" : "bright colors, overexposed, static, blurred details, subtitles, style, artwork, painting, picture, still, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, malformed limbs, fused fingers, still picture, cluttered background, three legs, many people in the background, walking backwards",
         "image" : "https://fancypawscatclinic.com/uploads/SiteAssets/426/images/services/payment-options-cat-720px.jpg"
     }

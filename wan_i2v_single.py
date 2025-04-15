@@ -22,6 +22,7 @@ import GPUtil
 import json
 import os
          
+from para_attn.parallel_vae.diffusers_adapters import parallelize_vae
 
 
 
