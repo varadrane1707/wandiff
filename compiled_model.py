@@ -35,7 +35,7 @@ class CompilationConfig():
 class CompiledWanModel():
     
     def __init__(self,config: CompilationConfig):
-        logger.info(f"Initializing CompiledWanModel pipeline with model {model_id}")
+        logger.info(f"Initializing CompiledWanModel pipeline with model")
         
         dist.init_process_group(backend='nccl', init_method='env://')
         rank = dist.get_rank()
@@ -62,9 +62,12 @@ class CompiledWanModel():
         try:
             self.load_model()
             self.optimize_pipe()
-            logger.info(f"Pipeline initialized {model_id} in {time.time() - start_load_time} seconds")
+            logger.info(f"Pipeline initialized {self.model_id} in {time.time() - start_load_time} seconds")
             if self.warmup:
-                self.warmup()
+                self.warmup_step()
+        except Exception as e:
+            logger.error(f"Error loading model: {e}")
+            raise e
                 
     def max_memory_usage(self):
         """Get maximum GPU memory usage in MB"""
@@ -112,6 +115,7 @@ class CompiledWanModel():
         if self.cache_type == "fbcache":
             from para_attn.first_block_cache.diffusers_adapters import apply_cache_on_pipe
             apply_cache_on_pipe(self.pipe , residual_diff_threshold=self.cache_threshold)
+            logger.info(f"Cache applied with fbcache and residual_diff_threshold = {self.cache_threshold}")
         elif self.cache_type == "teacache":
             from cachify import teacache_forward
             import types
@@ -130,7 +134,8 @@ class CompiledWanModel():
             
     def apply_sage_attention(self):
         from sageattention import sageattn
-        set_sage_attn_wan(self.pipe.transformer, self.attention_type)   
+        from sage_attn import set_sage_attn_wan
+        set_sage_attn_wan(self.pipe.transformer, sageattn)   
         
     def optimize_pipe(self):
         parallelize_vae(self.vae)
@@ -148,7 +153,7 @@ class CompiledWanModel():
             torch._inductor.config.reorder_for_compute_comm_overlap = True
             self.pipe.transformer = torch.compile(self.pipe.transformer, mode="max-autotune-no-cudagraphs")
     
-    def warmup(self):
+    def warmup_step(self):
         logger.info("Running Warm Up!")
         prompt = "A car driving on a road"
         negative_prompt = "blurry, low quality, dark"
@@ -175,7 +180,6 @@ class CompiledWanModel():
         logger.info(f"inference time : {end_time - start_time}")
         logger.info(f"height : {height}")
         logger.info(f"width : {width}")
-        logger.info(f"max GPU memory used: {self.max_memory_used:.2f}MB")
         logger.info("-"*40)
         logger.info("\n")
         
@@ -214,28 +218,28 @@ if __name__ == "__main__":
     
     os.environ["MASTER_ADDR"] = "localhost"  # or the IP of the master node
     os.environ["MASTER_PORT"] = "29500"      # any free port                # rank of this process
-    os.environ["WORLD_SIZE"] = str(world_size)
+    os.environ["WORLD_SIZE"] = str(8)
     
-    config = CompilationConfig(
-        model_id=parser.parse_args().model_id,
-        attention_type=parser.parse_args().attention_type,
-        cache_type=parser.parse_args().cache_type,
-        cache_threshold=parser.parse_args().cache_threshold,
-        compilation=parser.parse_args().compilation
-    )
+    config = CompilationConfig()
+    config.model_id = parser.parse_args().model_id
+    config.attention_type = parser.parse_args().attention_type
+    config.cache_type = parser.parse_args().cache_type
+    config.cache_threshold = parser.parse_args().cache_threshold
+    config.compilation = parser.parse_args().compilation
+    
     model = CompiledWanModel(config)
     
-    with open(args.input_json, "r") as f:
+    with open("inputs.json", "r") as f:
             inputs = json.load(f)
             
     for i in range(0,len(inputs)):
         prompt = inputs[str(i+1)]["prompt"]
         negative_prompt = inputs[str(i+1)]["negative_prompt"]
         image = load_image(inputs[str(i+1)]["image"])
-        image = image.resize((RESOLUTION_CONFIG[resolution]["width"],RESOLUTION_CONFIG[resolution]["height"]))
+        image = image.resize((1280,720))
         start_time = time.time()
-        latents = WanModel.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=RESOLUTION_CONFIG[resolution]["height"],width=RESOLUTION_CONFIG[resolution]["width"],num_frames=num_frames,guidance_scale=5.0,num_inference_steps=30,fps=16,decode_type=decode_type)
+        latents = model.generate_video(prompt=prompt,negative_prompt=negative_prompt,image=image,height=720,width=1280,num_frames=81,guidance_scale=5.0,num_inference_steps=30,fps=16)
         end_time = time.time()
-        WanModel.get_matrix(start_time,end_time,RESOLUTION_CONFIG[resolution]["height"],RESOLUTION_CONFIG[resolution]["width"])
+        model.get_matrix(start_time,end_time,1280,720)
     
     model.shutdown()
